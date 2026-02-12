@@ -3,9 +3,9 @@
 DDL Script: Create stg0 Tables
 ===============================================================================
 Script Purpose:
-    This script creates tables in the 'bronze' schema, dropping existing tables 
+    This script creates tables in the 'stg0' schema, dropping existing tables 
     if they already exist.
-	  Run this script to re-define the DDL structure of 'bronze' Tables
+	  Run this script to re-define the DDL structure of 'stg0' Tables
 ===============================================================================
 */
 
@@ -57,7 +57,7 @@ CREATE TABLE stg0.crm_sales_details (
 GO
 
 IF OBJECT_ID('stg0.erp_loc_a101', 'U') IS NOT NULL
-    DROP TABLE bronze.erp_loc_a101;
+    DROP TABLE stg0.erp_loc_a101;
 GO
 
 CREATE TABLE stg0.erp_loc_a101 (
