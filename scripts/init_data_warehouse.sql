@@ -26,9 +26,11 @@ GO
 
 -- Create the 'SQL_Data_Warehouse' database
 CREATE DATABASE SQL_Data_Warehouse;
+GO
 
 Use SQL_Data_Warehouse;
-
+GO
+	
 -- Create Schemas
 CREATE SCHEMA stg0;
 GO
@@ -37,5 +39,4 @@ CREATE SCHEMA stage;
 GO
 
 CREATE SCHEMA report;
-
 GO
