@@ -9,7 +9,7 @@ Script Purpose:
     within the database: 'stg0', 'stage', and 'report'.
 	
 WARNING:
-    Running this script will drop the entire 'data_warehouse' database if it exists. 
+    Running this script will drop the entire 'SQL_Data_Warehouse' database if it exists. 
     All data in the database will be permanently deleted. Proceed with caution 
     and ensure you have proper backups before running this script.
 */
@@ -17,17 +17,17 @@ WARNING:
 USE master;
 
 -- Drop and recreate the 'DataWarehouse' database
-IF EXISTS (SELECT 1 FROM sys.databases WHERE name = 'data_warehouse')
+IF EXISTS (SELECT 1 FROM sys.databases WHERE name = 'SQL_Data_Warehouse')
 BEGIN
-    ALTER DATABASE data_warehouse SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
-    DROP DATABASE data_warehouse;
+    ALTER DATABASE SQL_Data_Warehouse SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+    DROP DATABASE SQL_Data_Warehouse;
 END;
 GO
 
--- Create the 'data_warehouse' database
-CREATE DATABASE data_warehouse;
+-- Create the 'SQL_Data_Warehouse' database
+CREATE DATABASE SQL_Data_Warehouse;
 
-Use data_warehouse;
+Use SQL_Data_Warehouse;
 
 -- Create Schemas
 CREATE SCHEMA stg0;
@@ -37,4 +37,5 @@ CREATE SCHEMA stage;
 GO
 
 CREATE SCHEMA report;
+
 GO
