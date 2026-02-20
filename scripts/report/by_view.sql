@@ -15,13 +15,13 @@ Usage:
 */
 
 -- =============================================================================
--- Create Dimension: report.dim_customers
+-- Create Dimension: report.dim_customer
 -- =============================================================================
-IF OBJECT_ID('report.dim_customers', 'V') IS NOT NULL
-    DROP VIEW report.dim_customers;
+IF OBJECT_ID('report.dim_customer', 'V') IS NOT NULL
+    DROP VIEW report.dim_customer;
 GO
 
-CREATE VIEW report.dim_customers AS
+CREATE VIEW report.dim_customer AS
 SELECT
     ROW_NUMBER() OVER (ORDER BY cst_id) AS customer_key, -- Surrogate key
     ci.cst_id                          AS customer_id,
@@ -44,13 +44,13 @@ LEFT JOIN stage.erp_loc_a101 la
 GO
 
 -- =============================================================================
--- Create Dimension: report.dim_products
+-- Create Dimension: report.dim_product
 -- =============================================================================
-IF OBJECT_ID('report.dim_products', 'V') IS NOT NULL
-    DROP VIEW report.dim_products;
+IF OBJECT_ID('report.dim_product', 'V') IS NOT NULL
+    DROP VIEW report.dim_product;
 GO
 
-CREATE VIEW report.dim_products AS
+CREATE VIEW report.dim_product AS
 SELECT
     ROW_NUMBER() OVER (ORDER BY pn.prd_start_dt, pn.prd_key) AS product_key, -- Surrogate key
     pn.prd_id       AS product_id,
@@ -70,13 +70,13 @@ WHERE pn.prd_end_dt IS NULL; -- Filter out all historical data
 GO
 
 -- =============================================================================
--- Create Fact Table: report.fact_sales
+-- Create Fact Table: report.fact_sale
 -- =============================================================================
-IF OBJECT_ID('report.fact_sales', 'V') IS NOT NULL
-    DROP VIEW report.fact_sales;
+IF OBJECT_ID('report.fact_sale', 'V') IS NOT NULL
+    DROP VIEW report.fact_sale;
 GO
 
-CREATE VIEW report.fact_sales AS
+CREATE VIEW report.fact_sale AS
 SELECT
     sd.sls_ord_num  AS order_number,
     pr.product_key  AS product_key,
