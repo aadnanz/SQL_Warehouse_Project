@@ -86,7 +86,8 @@ BEGIN
 			prd_cost,
 			prd_line,
 			prd_start_dt,
-			prd_end_dt
+			prd_end_dt,
+			prd_status
 		)
 		SELECT
 			prd_id,
@@ -106,8 +107,14 @@ BEGIN
 				LEAD(prd_start_dt) OVER (PARTITION BY prd_key ORDER BY prd_start_dt) - 1 
 				AS DATE
 			) AS prd_end_dt -- Calculate end date as one day before the next start date
-		FROM stg0.crm_prod_info;
-        SET @end_time = GETDATE();
+		    CASE 
+		        WHEN LEAD(prd_start_dt) OVER (PARTITION BY prd_key ORDER BY prd_start_dt) IS NULL 
+		            THEN 'Active'
+		        ELSE 'Inactive'
+		    END AS prd_status	    -- Product status based on end date
+			FROM stg0.crm_prod_info;
+        
+		SET @end_time = GETDATE();
         PRINT '>> Load Duration: ' + CAST(DATEDIFF(SECOND, @start_time, @end_time) AS NVARCHAR) + ' seconds';
         PRINT '>> -------------';
 
