@@ -21,7 +21,6 @@ CREATE TABLE stage.crm_cust_info (
     cst_marital_status  VARCHAR(50),
     cst_gndr            VARCHAR(50),
     cst_create_date     DATE,
-	cst_status			VARCHAR(10)
 	dwh_create_date		DATETIME2 DEFAULT GETDATE()
 );
 GO
@@ -39,7 +38,6 @@ CREATE TABLE stage.crm_prod_info (
     prd_line			VARCHAR(50),
     prd_start_dt		DATE,
     prd_end_dt			DATE,
-	prd_status			VARCHAR(10)
 	dwh_create_date		DATETIME2 DEFAULT GETDATE()
 );
 GO
