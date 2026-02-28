@@ -1,23 +1,3 @@
-/*
-===============================================================================
-Stored Procedure: Load stage Layer (stg0 -> stage)
-===============================================================================
-Script Purpose:
-    This stored procedure performs the ETL (Extract, Transform, Load) process to 
-    populate the 'stage' schema tables from the 'stg0' schema.
-	Actions Performed:
-		- Truncates stage tables.
-		- Inserts transformed and cleansed data from stg0 into stage tables.
-		
-Parameters:
-    None. 
-	  This stored procedure does not accept any parameters or return any values.
-
-Usage Example:
-    EXEC stage.load_stage_scd2;
-===============================================================================
-*/
-
 CREATE OR ALTER PROCEDURE stage.load_stage_scd2 AS
 BEGIN
     DECLARE @start_time DATETIME, @end_time DATETIME, @batch_start_time DATETIME, @batch_end_time DATETIME; 
@@ -56,23 +36,33 @@ BEGIN
             CASE 
                 WHEN ROW_NUMBER() OVER (PARTITION BY cst_id ORDER BY cst_create_date DESC) = 1 THEN 'A'
                 ELSE 'I'
-            END AS is_current 
+            END AS is_current
         INTO #crm_cust_info_temp
         FROM stg0.crm_cust_info
         WHERE cst_id IS NOT NULL;
-
+        -- Deduplicate: keep only the latest active record per cst_id for MERGE
+        SELECT 
+            cst_id, cst_key, cst_firstname, cst_lastname,
+            cst_marital_status, cst_gndr, cst_create_date, is_current
+        INTO #crm_cust_info_dedup
+        FROM (
+            SELECT *,
+                ROW_NUMBER() OVER (PARTITION BY cst_id ORDER BY cst_create_date DESC) AS rn
+            FROM #crm_cust_info_temp
+        ) t
+        WHERE rn = 1;
         -- STEP 1: Inactivate old active records that have changed
         MERGE stage.crm_cust_info AS tgt
-        USING #crm_cust_info_temp AS src
+        USING #crm_cust_info_dedup AS src
         ON tgt.cst_id = src.cst_id
         AND tgt.is_current = 'A'
         WHEN MATCHED AND (
-                ISNULL(tgt.cst_key,            '') <> ISNULL(src.cst_key,            '') OR
-                ISNULL(tgt.cst_firstname,       '') <> ISNULL(src.cst_firstname,       '') OR
-                ISNULL(tgt.cst_lastname,        '') <> ISNULL(src.cst_lastname,        '') OR
-                ISNULL(tgt.cst_marital_status,  '') <> ISNULL(src.cst_marital_status,  '') OR
-                ISNULL(tgt.cst_gndr,            '') <> ISNULL(src.cst_gndr,            '') OR
-                ISNULL(tgt.cst_create_date,     '') <> ISNULL(src.cst_create_date,     '')
+                ISNULL(tgt.cst_key,'') <> ISNULL(src.cst_key,'') OR
+                ISNULL(tgt.cst_firstname,'') <> ISNULL(src.cst_firstname,'') OR
+                ISNULL(tgt.cst_lastname,'') <> ISNULL(src.cst_lastname,'') OR
+                ISNULL(tgt.cst_marital_status,'') <> ISNULL(src.cst_marital_status,'') OR
+                ISNULL(tgt.cst_gndr,'') <> ISNULL(src.cst_gndr,'') OR
+                ISNULL(tgt.cst_create_date,'') <> ISNULL(src.cst_create_date,'')
             )
         THEN UPDATE SET
             tgt.is_current  = 'I',
@@ -90,7 +80,7 @@ BEGIN
         SELECT 
             src.cst_id, src.cst_key, src.cst_firstname, src.cst_lastname,
             src.cst_marital_status, src.cst_gndr, src.cst_create_date, src.is_current
-        FROM #crm_cust_info_temp AS src
+        FROM #crm_cust_info_dedup AS src
         INNER JOIN stage.crm_cust_info AS tgt
             ON tgt.cst_id      = src.cst_id
             AND tgt.is_current = 'I'
@@ -98,6 +88,7 @@ BEGIN
         WHERE src.is_current = 'A';
 
         DROP TABLE #crm_cust_info_temp;
+        DROP TABLE #crm_cust_info_dedup;
 
         SET @end_time = GETDATE();
         PRINT '>> Load Duration: ' + CAST(DATEDIFF(SECOND, @start_time, @end_time) AS NVARCHAR) + ' seconds';
@@ -129,20 +120,30 @@ BEGIN
             ) AS prd_end_dt
         INTO #crm_prod_info_temp
         FROM stg0.crm_prod_info;
-
+        -- Deduplicate: keep only the latest record per prd_id for MERGE
+        SELECT
+            prd_id, cat_id, prd_key, prd_nm, prd_cost,
+            prd_line, prd_start_dt, prd_end_dt
+        INTO #crm_prod_info_dedup
+        FROM (
+            SELECT *,
+                ROW_NUMBER() OVER (PARTITION BY prd_id ORDER BY prd_start_dt DESC) AS rn
+            FROM #crm_prod_info_temp
+        ) t
+        WHERE rn = 1;
         -- STEP 1: Inactivate changed + insert new products
         MERGE stage.crm_prod_info AS tgt
-        USING #crm_prod_info_temp AS src
+        USING #crm_prod_info_dedup AS src
         ON tgt.prd_id = src.prd_id
         AND tgt.is_current = 'A'
         WHEN MATCHED AND (
-                ISNULL(tgt.cat_id,       '') <> ISNULL(src.cat_id,       '') OR
-                ISNULL(tgt.prd_key,      '') <> ISNULL(src.prd_key,      '') OR
-                ISNULL(tgt.prd_nm,       '') <> ISNULL(src.prd_nm,       '') OR
-                ISNULL(tgt.prd_cost,      0) <> ISNULL(src.prd_cost,      0) OR
-                ISNULL(tgt.prd_line,     '') <> ISNULL(src.prd_line,     '') OR
-                ISNULL(tgt.prd_start_dt, '') <> ISNULL(src.prd_start_dt, '') OR
-                ISNULL(tgt.prd_end_dt,   '') <> ISNULL(src.prd_end_dt,   '')
+                ISNULL(tgt.cat_id,'') <> ISNULL(src.cat_id,'') OR
+                ISNULL(tgt.prd_key,'') <> ISNULL(src.prd_key,'') OR
+                ISNULL(tgt.prd_nm,'') <> ISNULL(src.prd_nm,'') OR
+                ISNULL(tgt.prd_cost,0) <> ISNULL(src.prd_cost,0) OR
+                ISNULL(tgt.prd_line,'') <> ISNULL(src.prd_line,'') OR
+                ISNULL(tgt.prd_start_dt,'') <> ISNULL(src.prd_start_dt,'') OR
+                ISNULL(tgt.prd_end_dt,'') <> ISNULL(src.prd_end_dt,'')
             )
         THEN UPDATE SET
             tgt.is_current  = 'I',
@@ -160,13 +161,14 @@ BEGIN
         SELECT 
             src.prd_id, src.cat_id, src.prd_key, src.prd_nm, src.prd_cost,
             src.prd_line, src.prd_start_dt, src.prd_end_dt, GETDATE(), 'A'
-        FROM #crm_prod_info_temp AS src
+        FROM #crm_prod_info_dedup AS src
         INNER JOIN stage.crm_prod_info AS tgt
             ON tgt.prd_id      = src.prd_id
             AND tgt.is_current = 'I'
             AND tgt.modified_dt >= CAST(GETDATE() AS DATE);
 
         DROP TABLE #crm_prod_info_temp;
+        DROP TABLE #crm_prod_info_dedup;
 
         SET @end_time = GETDATE();
         PRINT '>> Load Duration: ' + CAST(DATEDIFF(SECOND, @start_time, @end_time) AS NVARCHAR) + ' seconds';
@@ -209,20 +211,32 @@ BEGIN
         INTO #crm_sales_details_temp
         FROM stg0.crm_sales_details;
 
+        -- Deduplicate: keep only the latest record per sls_ord_num for MERGE
+        SELECT
+            sls_ord_num, sls_prd_key, sls_cust_id, sls_order_dt,
+            sls_ship_dt, sls_due_dt, sls_sales, sls_quantity, sls_price
+        INTO #crm_sales_details_dedup
+        FROM (
+            SELECT *,
+                ROW_NUMBER() OVER (PARTITION BY sls_ord_num ORDER BY sls_order_dt DESC) AS rn
+            FROM #crm_sales_details_temp
+        ) t
+        WHERE rn = 1;
+
         -- STEP 1: Inactivate changed + insert new records
         MERGE stage.crm_sales_details AS tgt
-        USING #crm_sales_details_temp AS src
+        USING #crm_sales_details_dedup AS src
         ON tgt.sls_ord_num = src.sls_ord_num
         AND tgt.is_current = 'A'
         WHEN MATCHED AND (
-                ISNULL(tgt.sls_prd_key,   '') <> ISNULL(src.sls_prd_key,   '') OR
-                ISNULL(tgt.sls_cust_id,    0) <> ISNULL(src.sls_cust_id,    0) OR
-                ISNULL(tgt.sls_order_dt,  '') <> ISNULL(src.sls_order_dt,  '') OR
-                ISNULL(tgt.sls_ship_dt,   '') <> ISNULL(src.sls_ship_dt,   '') OR
-                ISNULL(tgt.sls_due_dt,    '') <> ISNULL(src.sls_due_dt,    '') OR
-                ISNULL(tgt.sls_sales,      0) <> ISNULL(src.sls_sales,      0) OR
-                ISNULL(tgt.sls_quantity,   0) <> ISNULL(src.sls_quantity,   0) OR
-                ISNULL(tgt.sls_price,      0) <> ISNULL(src.sls_price,      0)
+                ISNULL(tgt.sls_prd_key,'') <> ISNULL(src.sls_prd_key,'') OR
+                ISNULL(tgt.sls_cust_id,0) <> ISNULL(src.sls_cust_id,0) OR
+                ISNULL(tgt.sls_order_dt,'') <> ISNULL(src.sls_order_dt,'') OR
+                ISNULL(tgt.sls_ship_dt,'') <> ISNULL(src.sls_ship_dt,'') OR
+                ISNULL(tgt.sls_due_dt,'') <> ISNULL(src.sls_due_dt,'') OR
+                ISNULL(tgt.sls_sales,0) <> ISNULL(src.sls_sales,0) OR
+                ISNULL(tgt.sls_quantity,0) <> ISNULL(src.sls_quantity,0) OR
+                ISNULL(tgt.sls_price,0) <> ISNULL(src.sls_price,0)
             )
         THEN UPDATE SET
             tgt.is_current  = 'I',
@@ -246,13 +260,14 @@ BEGIN
             src.sls_order_dt, src.sls_ship_dt, src.sls_due_dt,
             src.sls_sales, src.sls_quantity, src.sls_price,
             GETDATE(), 'A'
-        FROM #crm_sales_details_temp AS src
+        FROM #crm_sales_details_dedup AS src
         INNER JOIN stage.crm_sales_details AS tgt
             ON tgt.sls_ord_num = src.sls_ord_num
             AND tgt.is_current = 'I'
             AND tgt.modified_dt >= CAST(GETDATE() AS DATE);
 
         DROP TABLE #crm_sales_details_temp;
+        DROP TABLE #crm_sales_details_dedup;
 
         SET @end_time = GETDATE();
         PRINT '>> Load Duration: ' + CAST(DATEDIFF(SECOND, @start_time, @end_time) AS NVARCHAR) + ' seconds';
@@ -275,20 +290,30 @@ BEGIN
             END AS bdate,
             CASE
                 WHEN UPPER(TRIM(gen)) IN ('F', 'FEMALE') THEN 'Female'
-                WHEN UPPER(TRIM(gen)) IN ('M', 'MALE')   THEN 'Male'
+                WHEN UPPER(TRIM(gen)) IN ('M', 'MALE') THEN 'Male'
                 ELSE 'n/a'
             END AS gen
         INTO #erp_cust_az12_temp
         FROM stg0.erp_cust_az12;
 
+        -- Deduplicate: keep only the latest record per cid for MERGE
+        SELECT cid, bdate, gen
+        INTO #erp_cust_az12_dedup
+        FROM (
+            SELECT *,
+                ROW_NUMBER() OVER (PARTITION BY cid ORDER BY bdate DESC) AS rn
+            FROM #erp_cust_az12_temp
+        ) t
+        WHERE rn = 1;
+
         -- STEP 1: Inactivate changed + insert new records
         MERGE stage.erp_cust_az12 AS tgt
-        USING #erp_cust_az12_temp AS src
+        USING #erp_cust_az12_dedup AS src
         ON tgt.cid = src.cid
         AND tgt.is_current = 'A'
         WHEN MATCHED AND (
-                ISNULL(tgt.bdate, '') <> ISNULL(src.bdate, '') OR
-                ISNULL(tgt.gen,   '') <> ISNULL(src.gen,   '')
+                ISNULL(tgt.bdate,'') <> ISNULL(src.bdate,'') OR
+                ISNULL(tgt.gen,'') <> ISNULL(src.gen,'')
             )
         THEN UPDATE SET
             tgt.is_current  = 'I',
@@ -300,13 +325,14 @@ BEGIN
         -- STEP 2: Insert new active version for changed records
         INSERT INTO stage.erp_cust_az12 (cid, bdate, gen, dwh_create_date, is_current)
         SELECT src.cid, src.bdate, src.gen, GETDATE(), 'A'
-        FROM #erp_cust_az12_temp AS src
+        FROM #erp_cust_az12_dedup AS src
         INNER JOIN stage.erp_cust_az12 AS tgt
             ON tgt.cid         = src.cid
             AND tgt.is_current = 'I'
             AND tgt.modified_dt >= CAST(GETDATE() AS DATE);
 
         DROP TABLE #erp_cust_az12_temp;
+        DROP TABLE #erp_cust_az12_dedup;
 
         SET @end_time = GETDATE();
         PRINT '>> Load Duration: ' + CAST(DATEDIFF(SECOND, @start_time, @end_time) AS NVARCHAR) + ' seconds';
@@ -321,17 +347,27 @@ BEGIN
         SELECT
             REPLACE(cid, '-', '') AS cid,
             CASE
-                WHEN TRIM(cntry) = 'DE'                THEN 'Germany'
-                WHEN TRIM(cntry) IN ('US', 'USA')      THEN 'United States'
+                WHEN TRIM(cntry) = 'DE' THEN 'Germany'
+                WHEN TRIM(cntry) IN ('US', 'USA') THEN 'United States'
                 WHEN TRIM(cntry) = '' OR cntry IS NULL THEN 'n/a'
                 ELSE TRIM(cntry)
             END AS cntry
         INTO #erp_loc_a101_temp
         FROM stg0.erp_loc_a101;
 
+        -- Deduplicate: keep only one record per cid for MERGE
+        SELECT cid, cntry
+        INTO #erp_loc_a101_dedup
+        FROM (
+            SELECT *,
+                ROW_NUMBER() OVER (PARTITION BY cid ORDER BY cntry) AS rn
+            FROM #erp_loc_a101_temp
+        ) t
+        WHERE rn = 1;
+
         -- STEP 1: Inactivate changed + insert new records
         MERGE stage.erp_loc_a101 AS tgt
-        USING #erp_loc_a101_temp AS src
+        USING #erp_loc_a101_dedup AS src
         ON tgt.cid = src.cid
         AND tgt.is_current = 'A'
         WHEN MATCHED AND (
@@ -347,13 +383,14 @@ BEGIN
         -- STEP 2: Insert new active version for changed records
         INSERT INTO stage.erp_loc_a101 (cid, cntry, dwh_create_date, is_current)
         SELECT src.cid, src.cntry, GETDATE(), 'A'
-        FROM #erp_loc_a101_temp AS src
+        FROM #erp_loc_a101_dedup AS src
         INNER JOIN stage.erp_loc_a101 AS tgt
             ON tgt.cid         = src.cid
             AND tgt.is_current = 'I'
             AND tgt.modified_dt >= CAST(GETDATE() AS DATE);
 
         DROP TABLE #erp_loc_a101_temp;
+        DROP TABLE #erp_loc_a101_dedup;
 
         SET @end_time = GETDATE();
         PRINT '>> Load Duration: ' + CAST(DATEDIFF(SECOND, @start_time, @end_time) AS NVARCHAR) + ' seconds';
@@ -369,15 +406,25 @@ BEGIN
         INTO #erp_px_cat_g1v2_temp
         FROM stg0.erp_px_cat_g1v2;
 
+        -- Deduplicate: keep only one record per id for MERGE
+        SELECT id, cat, subcat, maintenance
+        INTO #erp_px_cat_g1v2_dedup
+        FROM (
+            SELECT *,
+                ROW_NUMBER() OVER (PARTITION BY id ORDER BY cat) AS rn
+            FROM #erp_px_cat_g1v2_temp
+        ) t
+        WHERE rn = 1;
+
         -- STEP 1: Inactivate changed + insert new records
         MERGE stage.erp_px_cat_g1v2 AS tgt
-        USING #erp_px_cat_g1v2_temp AS src
+        USING #erp_px_cat_g1v2_dedup AS src
         ON tgt.id = src.id
         AND tgt.is_current = 'A'
         WHEN MATCHED AND (
-                ISNULL(tgt.cat,         '') <> ISNULL(src.cat,         '') OR
-                ISNULL(tgt.subcat,      '') <> ISNULL(src.subcat,      '') OR
-                ISNULL(tgt.maintenance, '') <> ISNULL(src.maintenance, '')
+                ISNULL(tgt.cat,'') <> ISNULL(src.cat,'') OR
+                ISNULL(tgt.subcat,'') <> ISNULL(src.subcat,'') OR
+                ISNULL(tgt.maintenance,'') <> ISNULL(src.maintenance,'')
             )
         THEN UPDATE SET
             tgt.is_current  = 'I',
@@ -389,13 +436,14 @@ BEGIN
         -- STEP 2: Insert new active version for changed records
         INSERT INTO stage.erp_px_cat_g1v2 (id, cat, subcat, maintenance, dwh_create_date, is_current)
         SELECT src.id, src.cat, src.subcat, src.maintenance, GETDATE(), 'A'
-        FROM #erp_px_cat_g1v2_temp AS src
+        FROM #erp_px_cat_g1v2_dedup AS src
         INNER JOIN stage.erp_px_cat_g1v2 AS tgt
             ON tgt.id          = src.id
             AND tgt.is_current = 'I'
             AND tgt.modified_dt >= CAST(GETDATE() AS DATE);
 
         DROP TABLE #erp_px_cat_g1v2_temp;
+        DROP TABLE #erp_px_cat_g1v2_dedup;
 
         SET @end_time = GETDATE();
         PRINT '>> Load Duration: ' + CAST(DATEDIFF(SECOND, @start_time, @end_time) AS NVARCHAR) + ' seconds';
