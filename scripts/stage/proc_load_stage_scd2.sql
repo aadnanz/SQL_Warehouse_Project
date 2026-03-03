@@ -117,7 +117,9 @@ BEGIN
             CAST(
                 LEAD(prd_start_dt) OVER (PARTITION BY prd_key ORDER BY prd_start_dt) - 1
                 AS DATE
-            ) AS prd_end_dt
+            ) AS prd_end_dt,
+            CASE WHEN CAST(LEAD(prd_start_dt) OVER (PARTITION BY prd_key ORDER BY prd_start_dt) - 1 AS DATE) IS NULL THEN 'A'
+            ELSE 'I' END AS is_current
         INTO #crm_prod_info_temp
         FROM stg0.crm_prod_info;
         -- Deduplicate: keep only the latest record per prd_id for MERGE
@@ -129,6 +131,7 @@ BEGIN
             SELECT *,
                 ROW_NUMBER() OVER (PARTITION BY prd_id ORDER BY prd_start_dt DESC) AS rn
             FROM #crm_prod_info_temp
+            WHERE is_current = 'A'
         ) t
         WHERE rn = 1;
         -- STEP 1: Inactivate changed + insert new products
@@ -224,50 +227,33 @@ BEGIN
         WHERE rn = 1;
 
         -- STEP 1: Inactivate changed + insert new records
-        MERGE stage.crm_sales_details AS tgt
-        USING #crm_sales_details_dedup AS src
-        ON tgt.sls_ord_num = src.sls_ord_num
-        AND tgt.is_current = 'A'
-        WHEN MATCHED AND (
-                ISNULL(tgt.sls_prd_key,'') <> ISNULL(src.sls_prd_key,'') OR
-                ISNULL(tgt.sls_cust_id,0) <> ISNULL(src.sls_cust_id,0) OR
-                ISNULL(tgt.sls_order_dt,'') <> ISNULL(src.sls_order_dt,'') OR
-                ISNULL(tgt.sls_ship_dt,'') <> ISNULL(src.sls_ship_dt,'') OR
-                ISNULL(tgt.sls_due_dt,'') <> ISNULL(src.sls_due_dt,'') OR
-                ISNULL(tgt.sls_sales,0) <> ISNULL(src.sls_sales,0) OR
-                ISNULL(tgt.sls_quantity,0) <> ISNULL(src.sls_quantity,0) OR
-                ISNULL(tgt.sls_price,0) <> ISNULL(src.sls_price,0)
-            )
-        THEN UPDATE SET
-            tgt.is_current  = 'I',
-            tgt.modified_dt = GETDATE()
-        WHEN NOT MATCHED BY TARGET THEN
-            INSERT (sls_ord_num, sls_prd_key, sls_cust_id, sls_order_dt,
-                    sls_ship_dt, sls_due_dt, sls_sales, sls_quantity,
-                    sls_price, dwh_create_date, is_current)
-            VALUES (src.sls_ord_num, src.sls_prd_key, src.sls_cust_id,
-                    src.sls_order_dt, src.sls_ship_dt, src.sls_due_dt,
-                    src.sls_sales, src.sls_quantity, src.sls_price,
-                    GETDATE(), 'A');
+        ;WITH cte AS (
+        SELECT *, ROW_NUMBER() OVER (
+        PARTITION BY sls_ord_num, sls_prd_key, sls_cust_id,
+                     sls_order_dt, sls_ship_dt, sls_due_dt,
+                     sls_sales, sls_quantity, sls_price
+        ORDER BY sls_ord_num
+        ) AS rn
+        FROM #crm_sales_details_dedup)
+        DELETE FROM cte WHERE rn > 1;
 
         -- STEP 2: Insert new active version for changed records
-        INSERT INTO stage.crm_sales_details
-            (sls_ord_num, sls_prd_key, sls_cust_id, sls_order_dt,
-             sls_ship_dt, sls_due_dt, sls_sales, sls_quantity,
-             sls_price, dwh_create_date, is_current)
-        SELECT 
-            src.sls_ord_num, src.sls_prd_key, src.sls_cust_id,
-            src.sls_order_dt, src.sls_ship_dt, src.sls_due_dt,
-            src.sls_sales, src.sls_quantity, src.sls_price,
-            GETDATE(), 'A'
+        INSERT INTO stage.crm_sales_details (sls_ord_num, sls_prd_key, sls_cust_id, sls_order_dt, sls_ship_dt, sls_due_dt,
+                                              sls_sales, sls_quantity, sls_price, dwh_create_date, is_current)
+        SELECT src.sls_ord_num, src.sls_prd_key, src.sls_cust_id, src.sls_order_dt, src.sls_ship_dt, src.sls_due_dt,
+                src.sls_sales, src.sls_quantity, src.sls_price, GETDATE(), 'A'
         FROM #crm_sales_details_dedup AS src
-        INNER JOIN stage.crm_sales_details AS tgt
-            ON tgt.sls_ord_num = src.sls_ord_num
-            AND tgt.is_current = 'I'
-            AND tgt.modified_dt >= CAST(GETDATE() AS DATE);
-
-        DROP TABLE #crm_sales_details_temp;
-        DROP TABLE #crm_sales_details_dedup;
+        LEFT JOIN stage.crm_sales_details AS tgt
+        ON tgt.sls_ord_num = src.sls_ord_num
+        AND tgt.sls_prd_key = src.sls_prd_key
+        AND tgt.sls_cust_id = src.sls_cust_id
+        AND tgt.sls_order_dt = src.sls_order_dt
+        AND tgt.sls_ship_dt = src.sls_ship_dt
+        AND tgt.sls_due_dt = src.sls_due_dt
+        AND tgt.sls_sales = src.sls_sales
+        AND tgt.sls_quantity = src.sls_quantity
+        AND tgt.sls_price = src.sls_price
+        WHERE tgt.sls_ord_num IS NULL;
 
         SET @end_time = GETDATE();
         PRINT '>> Load Duration: ' + CAST(DATEDIFF(SECOND, @start_time, @end_time) AS NVARCHAR) + ' seconds';
