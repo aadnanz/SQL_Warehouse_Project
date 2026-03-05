@@ -63,10 +63,7 @@ CREATE TABLE stage.crm_sales_details (
     sls_sales			INT,
     sls_quantity		INT,
     sls_price			INT,
-	dwh_create_date		DATETIME2 DEFAULT GETDATE(),
-    -- SCD2 Columns
-    is_current          CHAR (1) NOT NULL DEFAULT 'A',
-    modified_dt         DATE
+	dwh_create_date		DATETIME2 DEFAULT GETDATE()
 );
 GO
 
