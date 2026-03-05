@@ -214,37 +214,28 @@ BEGIN
         INTO #crm_sales_details_temp
         FROM stg0.crm_sales_details;
 
-        -- Deduplicate: keep only the latest record per sls_ord_num for MERGE
-        SELECT
-            sls_ord_num, sls_prd_key, sls_cust_id, sls_order_dt,
-            sls_ship_dt, sls_due_dt, sls_sales, sls_quantity, sls_price
-        INTO #crm_sales_details_dedup
-        FROM (
-            SELECT *,
-                ROW_NUMBER() OVER (PARTITION BY sls_ord_num ORDER BY sls_order_dt DESC) AS rn
-            FROM #crm_sales_details_temp
-        ) t
-        WHERE rn = 1;
+        -- STEP 1: Removing duplicate from #crm_sales_details_temp
+        WITH cte AS (
+        SELECT *,
+        ROW_NUMBER() OVER (PARTITION BY sls_ord_num, sls_prd_key, sls_cust_id,
+        sls_order_dt, sls_ship_dt, sls_due_dt, sls_sales, sls_quantity, sls_price
+        ORDER BY sls_ord_num) rn
+        FROM #crm_sales_details_temp)
+        DELETE FROM cte
+        WHERE rn > 1;
 
-        -- STEP 1: Inactivate changed + insert new records
-        ;WITH cte AS (
-        SELECT *, ROW_NUMBER() OVER (
-        PARTITION BY sls_ord_num, sls_prd_key, sls_cust_id,
-                     sls_order_dt, sls_ship_dt, sls_due_dt,
-                     sls_sales, sls_quantity, sls_price
-        ORDER BY sls_ord_num
-        ) AS rn
-        FROM #crm_sales_details_dedup)
-        DELETE FROM cte WHERE rn > 1;
+        -- STEP 2: Insert non duplicate records only
+        INSERT INTO stage.crm_sales_details (sls_ord_num, sls_prd_key, sls_cust_id, sls_order_dt, sls_ship_dt,
+        sls_due_dt, sls_sales, sls_quantity, sls_price, dwh_create_date)
 
-        -- STEP 2: Insert new active version for changed records
-        INSERT INTO stage.crm_sales_details (sls_ord_num, sls_prd_key, sls_cust_id, sls_order_dt, sls_ship_dt, sls_due_dt,
-                                              sls_sales, sls_quantity, sls_price, dwh_create_date, is_current)
         SELECT src.sls_ord_num, src.sls_prd_key, src.sls_cust_id, src.sls_order_dt, src.sls_ship_dt, src.sls_due_dt,
-                src.sls_sales, src.sls_quantity, src.sls_price, GETDATE(), 'A'
-        FROM #crm_sales_details_dedup AS src
-        LEFT JOIN stage.crm_sales_details AS tgt
-        ON tgt.sls_ord_num = src.sls_ord_num
+        src.sls_sales, src.sls_quantity, src.sls_price, GETDATE()
+        FROM #crm_sales_details_temp src
+
+        WHERE NOT EXISTS (
+        SELECT 1
+        FROM stage.crm_sales_details tgt
+        WHERE tgt.sls_ord_num = src.sls_ord_num
         AND tgt.sls_prd_key = src.sls_prd_key
         AND tgt.sls_cust_id = src.sls_cust_id
         AND tgt.sls_order_dt = src.sls_order_dt
@@ -252,9 +243,7 @@ BEGIN
         AND tgt.sls_due_dt = src.sls_due_dt
         AND tgt.sls_sales = src.sls_sales
         AND tgt.sls_quantity = src.sls_quantity
-        AND tgt.sls_price = src.sls_price
-        WHERE tgt.sls_ord_num IS NULL;
-
+        AND tgt.sls_price = src.sls_price);
         SET @end_time = GETDATE();
         PRINT '>> Load Duration: ' + CAST(DATEDIFF(SECOND, @start_time, @end_time) AS NVARCHAR) + ' seconds';
         PRINT '>> -------------';
