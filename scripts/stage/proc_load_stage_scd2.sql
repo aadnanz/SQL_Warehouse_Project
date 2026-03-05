@@ -69,9 +69,9 @@ BEGIN
             tgt.modified_dt = GETDATE()
         WHEN NOT MATCHED BY TARGET THEN
             INSERT (cst_id, cst_key, cst_firstname, cst_lastname, 
-                    cst_marital_status, cst_gndr, cst_create_date, is_current)
+                    cst_marital_status, cst_gndr, cst_create_date, dwh_create_date, is_current)
             VALUES (src.cst_id, src.cst_key, src.cst_firstname, src.cst_lastname,
-                    src.cst_marital_status, src.cst_gndr, src.cst_create_date, src.is_current);
+                    src.cst_marital_status, src.cst_gndr, src.cst_create_date, GETDATE(), 'A');
 
         -- STEP 2: Insert new active version for changed records
         INSERT INTO stage.crm_cust_info 
