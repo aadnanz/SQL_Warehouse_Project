@@ -26,6 +26,7 @@ CREATE TABLE report.dim_customers (
     gender           VARCHAR(50),
     birthdate        DATE,
     create_date      DATETIME,
+	dwh_create_date DATETIME DEFAULT GETDATE(),
     -- SCD2 Columns
     is_current          CHAR (1) NOT NULL DEFAULT 'A',
     modified_dt         DATE
@@ -50,6 +51,7 @@ CREATE TABLE report.dim_products (
     cost            int,
     product_line    VARCHAR(50),
     start_date      DATE,
+	dwh_create_date DATETIME DEFAULT GETDATE(),
     -- SCD2 Columns
     is_current          CHAR (1) NOT NULL DEFAULT 'A',
     modified_dt         DATE
@@ -71,6 +73,7 @@ CREATE TABLE report.fact_sales (
     due_date       DATE,
     sales_amount   INT,
     quantity       INT,
-    price          INT
+    price          INT,
+	dwh_create_date DATETIME DEFAULT GETDATE()
 );
 GO
